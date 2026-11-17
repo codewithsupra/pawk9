@@ -2,6 +2,7 @@ import AccountActions from "@/components/account-actions";
 import BookingRateForm from "@/components/booking-rate-form";
 import ConnectStripeButton from "@/components/connect-stripe-button";
 import ContentBlock from "@/components/content-block";
+import { BOOKING_FEE_PERCENT } from "@/lib/constants";
 
 export type AccountPlan =
   | { kind: "lifetime"; since: Date; alsoSubscribed: boolean }
@@ -112,6 +113,11 @@ export default function AccountView({
               </div>
             </>
           )}
+          <p className="mt-4 max-w-prose text-sm text-zinc-600">
+            Fee: PawK9 keeps {BOOKING_FEE_PERCENT}% of each booking, which also
+            covers Stripe&apos;s card charges. You receive the other{" "}
+            {100 - BOOKING_FEE_PERCENT}%.
+          </p>
         </div>
       </ContentBlock>
 

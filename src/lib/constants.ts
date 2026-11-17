@@ -29,8 +29,12 @@ export const MAX_DAILY_RATE_CENTS = 100_000;
  */
 export const CONNECT_COUNTRY = "US";
 
-/** PawK9's cut of each booking payment, in percent. Shown to daycares in the terms. */
-export const BOOKING_FEE_PERCENT = 5;
+/**
+ * PawK9's cut of each booking payment, in percent. PawK9 pays Stripe's card fees out of
+ * it (destination charges), so it has to stay well above Stripe's cost: about 3% on a
+ * domestic card, closer to 5% on a foreign one. Shown to daycares on the Account page.
+ */
+export const BOOKING_FEE_PERCENT = 8;
 
 /** How long an owner has to pay once sent to Stripe. Stripe's minimum is 30 minutes; a few more avoid clock-skew rejections. */
 export const CHECKOUT_EXPIRY_MINUTES = 35;

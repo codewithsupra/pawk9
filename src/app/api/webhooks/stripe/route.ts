@@ -1,4 +1,5 @@
 import type Stripe from "stripe";
+import { notifyBookingConfirmed } from "@/lib/booking-notify";
 import {
   cancelBookingForExpiredSession,
   fulfillBookingPayment,
@@ -37,6 +38,8 @@ export async function POST(request: Request) {
     // in either throws, so Stripe gets a 500 and retries the delivery.
     if (session.metadata?.product === "booking") {
       const result = await fulfillBookingPayment(session);
+      // Only the delivery that actually confirmed it sends emails (never throws).
+      if (result.outcome === "confirmed") await notifyBookingConfirmed(session);
       if (result.outcome === "refunded" || result.outcome === "ignored") {
         console.warn(
           `Stripe event ${event.id}: booking payment ${result.outcome}: ${result.reason}`,

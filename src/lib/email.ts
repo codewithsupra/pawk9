@@ -7,7 +7,7 @@ function getClient() {
 }
 
 /** Pet and daycare names are user-typed, so they must never reach the HTML as markup. */
-function escapeHtml(text: string) {
+export function escapeHtml(text: string) {
   return text
     .replaceAll("&", "&amp;")
     .replaceAll("<", "&lt;")
@@ -44,6 +44,30 @@ export async function sendPhotoEmail(email: PhotoEmail) {
 <p><a href="${url}"><img src="${url}" alt="${pet}" width="480" style="max-width:100%;border-radius:8px"></a></p>
 <p><a href="${url}">Open the photo</a> (the link works for 7 days).</p>`,
     text: `Hi ${email.ownerName},\n\n${email.daycareName} sent a new photo of ${email.petName}:\n${email.photoUrl}\n\n(The link works for 7 days.)`,
+  });
+  if (error) throw new Error(`Resend: ${error.name}`);
+}
+
+type PlainEmail = {
+  to: string;
+  /** The sender's display name, for example the daycare's or "PawK9". */
+  fromName: string;
+  replyTo?: string;
+  subject: string;
+  html: string;
+  text: string;
+};
+
+/** Sends a ready-made email. Throws if sending fails. */
+export async function sendEmail(email: PlainEmail) {
+  const { error } = await getClient().emails.send({
+    // Same sender rules as sendPhotoEmail: RESEND_FROM once a domain is verified.
+    from: `${email.fromName.replace(/[<>"\r\n]/g, "")} <${process.env.RESEND_FROM ?? "onboarding@resend.dev"}>`,
+    to: email.to,
+    replyTo: email.replyTo,
+    subject: email.subject,
+    html: email.html,
+    text: email.text,
   });
   if (error) throw new Error(`Resend: ${error.name}`);
 }
