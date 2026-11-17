@@ -1,5 +1,16 @@
 # Deploying PawK9
 
+## Current deployment (read this first)
+
+A **test-mode** production deployment is live at **https://pawk9.vercel.app** (Vercel project `pawk9`, Neon project `weathered-lake-54304847` in us-east-1, private Blob store `pawk9-photos`). It exists so the whole app can be tried on a real link. It is **not ready for real customers or real money**, because it still uses:
+
+- Clerk **development** keys (`pk_test_`/`sk_test_`): sign-in works but shows a development banner and is for testing only.
+- Stripe **test** keys: only test cards (`4242 4242 4242 4242`) work, and no real money moves. A webhook endpoint for `https://pawk9.vercel.app/api/webhooks/stripe` exists in Stripe's test mode.
+- Resend's test sender: emails only reach the Resend account owner's own address until a domain is verified.
+- No custom domain, no `CONTACT_EMAIL`, no error monitoring.
+
+Deploy again with `vercel deploy --prod` from this folder (it builds with `npm run build:vercel`, which applies migrations first). Environment variables are set on the Vercel project for **Production only**; Preview deployments have none except the Blob token. Database migrations use `DIRECT_DATABASE_URL` (Neon's direct connection) and the app uses `DATABASE_URL` (the pooled one). Going to real production means walking through the checklist below with live keys and a real domain, then changing `APP_URL` and re-creating the Stripe webhook for the new domain.
+
 Stack: **Vercel** (hosting + private photo storage), **Neon** (Postgres), **Clerk** (sign-in, subscriptions), **Stripe** (lifetime purchase and booking payments), **Resend** (email).
 
 Do the steps in order. Nothing here has been run against production yet: the first preview deployment is the first real test of Vercel Blob and the live-mode services.
