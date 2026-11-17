@@ -11,8 +11,8 @@ const inter = Inter({
 });
 
 export const metadata: Metadata = {
-  title: "Petsoft",
-  description: "Petsoft - Your pet management solution",
+  title: "PawK9",
+  description: "PawK9 - Your pet management solution",
 };
 
 export default function RootLayout({ children }: LayoutProps<"/">) {

@@ -67,3 +67,25 @@ export async function getPets(userId: string): Promise<Pet[]> {
 export async function countPets(userId: string) {
   return prisma.pet.count({ where: { userId } });
 }
+
+/** The most bookings the list shows. Older ones stay in the database. */
+const BOOKINGS_SHOWN = 100;
+
+/** A user's own booking requests and bookings, newest first. Scoped like getPets. */
+export async function getBookings(userId: string) {
+  return prisma.booking.findMany({
+    where: { userId },
+    orderBy: { createdAt: "desc" },
+    take: BOOKINGS_SHOWN,
+    select: {
+      id: true,
+      startDate: true,
+      endDate: true,
+      days: true,
+      amountCents: true,
+      status: true,
+      createdAt: true,
+      pet: { select: { name: true, ownerName: true } },
+    },
+  });
+}

@@ -2,7 +2,7 @@ import Logo from "@/components/logo";
 import { Button } from "@/components/ui/button";
 import Link from "next/link";
 import Image from "next/image";
-import preview from "../../../public/petsoft-preview.jpg";
+import preview from "../../../public/pawk9-preview.jpg";
 
 export default function Home() {
   return (
@@ -10,7 +10,7 @@ export default function Home() {
       <div className="flex w-full max-w-6xl flex-col items-center gap-10 lg:flex-row lg:gap-14">
         <Image
           src={preview}
-          alt="The Petsoft dashboard: a list of dogs on the left and the selected dog's details on the right"
+          alt="The PawK9 dashboard: a list of dogs on the left and the selected dog's details on the right"
           priority
           sizes="(min-width: 1024px) 50vw, 100vw"
           className="h-auto w-full max-w-150 min-w-0 rounded-lg shadow-lg lg:flex-1"
@@ -22,7 +22,7 @@ export default function Home() {
             <span className="font-extrabold">pet daycare business</span>
           </h1>
           <p className="text-lg leading-relaxed">
-            Easily manage your pet daycare business with Petsoft. Keep track of
+            Easily manage your pet daycare business with PawK9. Keep track of
             your pets, appointments, and staff all in one place.
             <br />
             <strong>From just $39 per month.</strong>

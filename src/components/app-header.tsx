@@ -10,6 +10,10 @@ const routes = [
     path: "/app/dashboard",
   },
   {
+    label: "Bookings",
+    path: "/app/bookings",
+  },
+  {
     label: "Profile",
     path: "/app/account",
   },

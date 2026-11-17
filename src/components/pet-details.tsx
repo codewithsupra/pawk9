@@ -5,6 +5,7 @@ import { usePetContext } from "@/lib/hooks";
 import { formatDuration, getCurrentStay } from "@/lib/stays";
 import type { Pet, Stay } from "@/lib/types";
 import PetButton from "@/components/pet-button";
+import PetBookingLink from "@/components/pet-booking-link";
 import PetPhotos from "@/components/pet-photos";
 
 // Formatted in the browser's own locale and time zone. This panel only renders after a
@@ -33,6 +34,7 @@ export default function PetDetails() {
       <Contact pet={selectedPet} />
       <Notes pet={selectedPet} />
       <PetPhotos pet={selectedPet} />
+      <PetBookingLink pet={selectedPet} />
       <RecentStays stays={selectedPet.stays} />
     </section>
   );

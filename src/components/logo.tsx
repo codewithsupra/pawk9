@@ -4,7 +4,7 @@ import Image from "next/image";
 export default function Logo() {
   return (
     <Link href="/">
-      <Image src={logo} alt="Petsoft Logo" />
+      <Image src={logo} alt="PawK9 Logo" />
     </Link>
   );
 }

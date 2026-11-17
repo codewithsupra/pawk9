@@ -5,6 +5,7 @@ import AccountView, { type AccountPlan } from "@/components/account-view";
 import ContentBlock from "@/components/content-block";
 import H1 from "@/components/h1";
 import { getCurrentUser, hasProPlan } from "@/lib/auth";
+import { syncConnectStatus } from "@/lib/connect";
 import { countPets } from "@/lib/data";
 import { SIGN_IN } from "@/lib/redirects";
 
@@ -32,9 +33,11 @@ async function AccountDetails() {
   const user = await getCurrentUser();
   if (!user) redirect(SIGN_IN); // The proxy already guards /app; this is a backstop.
 
-  const [petCount, subscribed] = await Promise.all([
+  const [petCount, subscribed, payments] = await Promise.all([
     countPets(user.id),
     hasProPlan(),
+    // Asks Stripe for the real status each time, so coming back from its form shows up.
+    syncConnectStatus(user),
   ]);
 
   // Lifetime wins when both apply, and we say so, so nobody keeps paying by accident.
@@ -53,6 +56,8 @@ async function AccountDetails() {
       memberSince={user.createdAt}
       petCount={petCount}
       plan={plan}
+      dailyRateCents={user.dailyRateCents}
+      payments={payments}
     />
   );
 }

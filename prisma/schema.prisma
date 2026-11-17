@@ -33,6 +33,12 @@ model Pet {
   stays      Stay[]
   photos     Photo[]
   photoSends PhotoSend[]
+  bookings   Booking[]
+
+  // Secret code in the pet's public booking link (/book/<code>). Random and unguessable,
+  // created the first time the daycare asks for the link; null until then. Stored (not a
+  // signed token) so a link can be switched off by clearing it.
+  bookingCode String? @unique
 
   @@index([userId])
 }
@@ -52,10 +58,23 @@ model User {
   // payment event can never grant it twice.
   lifetimeStripeSessionId String?   @unique
 
+  // What this daycare charges per day, in cents, for online bookings. Null means the
+  // daycare hasn't set a rate, so it can't take bookings yet.
+  dailyRateCents Int?
+
+  // This daycare's Stripe Connect (Express) account, where booking payments are sent.
+  // Created the first time they click Connect. Unique so one Stripe account can't be
+  // attached to two daycares.
+  stripeAccountId      String? @unique
+  // Whether Stripe says that account can take card payments (checked with Stripe, then
+  // remembered here so public pages don't need to call Stripe on every view).
+  stripeChargesEnabled Boolean @default(false)
+
   pets       Pet[]
   stays      Stay[]
   photos     Photo[]
   photoSends PhotoSend[]
+  bookings   Booking[]
 }
 
 // One visit: a pet checked in, and (once they leave) checked out. A pet is "checked in"
@@ -114,4 +133,35 @@ model PhotoSend {
 
   @@index([photoId, createdAt])
   @@index([userId, createdAt])
+}
+
+enum BookingStatus {
+  // Created, waiting for the owner to pay. Not a reservation yet.
+  PENDING_PAYMENT
+  CONFIRMED
+  CANCELLED
+}
+
+// A pet's booked stay: every day from startDate to endDate inclusive. Money fields are
+// snapshots taken when the booking is made, so later rate changes never alter it.
+model Booking {
+  id        String   @id @default(cuid())
+  createdAt DateTime @default(now())
+
+  // Calendar days stored at UTC midnight; times of day don't matter for a daycare.
+  startDate      DateTime
+  endDate        DateTime
+  days           Int
+  dailyRateCents Int
+  amountCents    Int
+  status         BookingStatus @default(PENDING_PAYMENT)
+
+  petId  String
+  pet    Pet    @relation(fields: [petId], references: [id], onDelete: Cascade)
+  // The daycare that owns the pet, denormalised so every query can be scoped to it.
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, startDate])
+  @@index([petId])
 }

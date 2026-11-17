@@ -146,7 +146,7 @@ function staysFor(name: string, petId: string, userId: string, now: number) {
 // so no one can sign in as it; it just guarantees there is always one user to own pets.
 const seedUser = {
   clerkId: "user_seed_demo",
-  email: "demo@petsoft.example.com",
+  email: "demo@pawk9.example.com",
   name: "Demo Owner",
 };
 

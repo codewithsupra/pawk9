@@ -34,7 +34,7 @@ export function getAppUrl(requestHost: string | null, protocol = "http") {
   const configured = process.env.APP_URL;
   if (configured) return configured.replace(/\/+$/, "");
   if (process.env.NODE_ENV === "production" || !requestHost) {
-    throw new Error("APP_URL is not set (e.g. https://petsoft.example.com).");
+    throw new Error("APP_URL is not set (e.g. https://pawk9.example.com).");
   }
   return `${protocol}://${requestHost}`;
 }

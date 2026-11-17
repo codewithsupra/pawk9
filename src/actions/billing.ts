@@ -37,8 +37,8 @@ export async function startLifetimeCheckout(): Promise<never> {
           currency: "usd",
           unit_amount: LIFETIME_PRICE_CENTS,
           product_data: {
-            name: "Petsoft Lifetime",
-            description: "One-time payment. Lifetime access to Petsoft.",
+            name: "PawK9 Lifetime",
+            description: "One-time payment. Lifetime access to PawK9.",
           },
         },
       },

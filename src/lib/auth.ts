@@ -32,7 +32,7 @@ export async function getCurrentUser() {
   const email =
     clerkUser?.primaryEmailAddress?.emailAddress ??
     // Email is unique and required here; phone-only Clerk users don't have one.
-    `${clerkId}@users.noreply.petsoft.local`;
+    `${clerkId}@users.noreply.pawk9.local`;
   const name =
     [clerkUser?.firstName, clerkUser?.lastName].filter(Boolean).join(" ") ||
     null;

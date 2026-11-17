@@ -55,7 +55,7 @@ async function LifetimeOffer() {
           Lifetime
         </h2>
         <p className="text-zinc-600">
-          Pay once, use Petsoft forever. No subscription.
+          Pay once, use PawK9 forever. No subscription.
         </p>
         <p className="mt-2 text-3xl font-semibold">
           {price}{" "}

@@ -1,4 +1,6 @@
 import AccountActions from "@/components/account-actions";
+import BookingRateForm from "@/components/booking-rate-form";
+import ConnectStripeButton from "@/components/connect-stripe-button";
 import ContentBlock from "@/components/content-block";
 
 export type AccountPlan =
@@ -11,6 +13,8 @@ type AccountViewProps = {
   memberSince: Date;
   petCount: number;
   plan: AccountPlan;
+  dailyRateCents: number | null;
+  payments: { connected: boolean; ready: boolean };
 };
 
 // UTC so the date doesn't shift with the server's time zone.
@@ -26,6 +30,8 @@ export default function AccountView({
   memberSince,
   petCount,
   plan,
+  dailyRateCents,
+  payments,
 }: AccountViewProps) {
   // Placeholder addresses (phone-only sign-ups) aren't real, so don't show them.
   const shownEmail = email.endsWith(".local") ? "Not provided" : email;
@@ -70,6 +76,40 @@ export default function AccountView({
                 You can change or cancel it under Manage profile, security &amp;
                 billing.
               </p>
+            </>
+          )}
+        </div>
+      </ContentBlock>
+
+      <ContentBlock className="p-8 md:col-span-2">
+        <h2 className="text-xl font-semibold">Online booking</h2>
+        <BookingRateForm dailyRateCents={dailyRateCents} />
+
+        <div className="mt-8 border-t border-black/8 pt-6">
+          <h3 className="text-sm font-medium">Get paid</h3>
+          {payments.ready ? (
+            <p className="mt-2">
+              <PlanBadge>Stripe connected</PlanBadge>
+              <span className="ml-3 text-zinc-700">
+                Booking payments go straight to your bank account.
+              </span>
+            </p>
+          ) : (
+            <>
+              <p className="mt-2 max-w-prose text-zinc-700">
+                {payments.connected
+                  ? "Stripe still needs a few details before you can take payments."
+                  : "Connect Stripe so owners can pay for bookings and the money is sent to you. Stripe collects your bank details; PawK9 never sees them."}
+              </p>
+              <div className="mt-4">
+                <ConnectStripeButton
+                  label={
+                    payments.connected
+                      ? "Finish Stripe setup"
+                      : "Connect Stripe to get paid"
+                  }
+                />
+              </div>
             </>
           )}
         </div>

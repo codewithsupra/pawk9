@@ -1,5 +1,34 @@
 import { z } from "zod";
-import { DEFAULT_PET_IMAGE } from "@/lib/constants";
+import {
+  DEFAULT_PET_IMAGE,
+  MAX_DAILY_RATE_CENTS,
+  MIN_DAILY_RATE_CENTS,
+} from "@/lib/constants";
+
+// A daycare's daily rate as typed in dollars ("45" or "45.50"), turned into whole cents.
+// Empty clears it (no rate means the daycare takes no bookings).
+export const dailyRateSchema = z
+  .string()
+  .trim()
+  .transform((text, ctx) => {
+    if (text === "") return null;
+    if (!/^\d{1,4}(\.\d{1,2})?$/.test(text)) {
+      ctx.addIssue({
+        code: "custom",
+        message: "Enter an amount like 45 or 45.50.",
+      });
+      return z.NEVER;
+    }
+    const cents = Math.round(Number(text) * 100);
+    if (cents < MIN_DAILY_RATE_CENTS || cents > MAX_DAILY_RATE_CENTS) {
+      ctx.addIssue({
+        code: "custom",
+        message: `The rate must be between ${MIN_DAILY_RATE_CENTS / 100} and ${MAX_DAILY_RATE_CENTS / 100} dollars.`,
+      });
+      return z.NEVER;
+    }
+    return cents;
+  });
 
 const emptyToUndefined = (value: string | null | undefined) =>
   value || undefined;

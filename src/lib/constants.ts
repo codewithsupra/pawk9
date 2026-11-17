@@ -13,3 +13,18 @@ export const LIFETIME_PRICE_CENTS = 89_900;
 export const PHOTO_RESEND_COOLDOWN_MS = 24 * 60 * 60 * 1000;
 /** At most this many photo emails per user in any rolling hour (limits spam and cost). */
 export const PHOTO_SENDS_PER_HOUR = 30;
+
+/** Unpaid booking requests one public booking link may hold at once (it has no sign-in). */
+export const MAX_OPEN_BOOKING_REQUESTS_PER_PET = 5;
+
+/** Bounds for a daycare's daily rate, in cents (1 to 1,000 dollars). */
+export const MIN_DAILY_RATE_CENTS = 100;
+export const MAX_DAILY_RATE_CENTS = 100_000;
+
+/**
+ * Country of the Stripe Connect accounts daycares create (two-letter code). It can't be
+ * changed on an account once created. Without it Stripe silently uses the platform's own
+ * country. The platform's country limits which values work: a platform in NL can create
+ * US and GB accounts but not IN.
+ */
+export const CONNECT_COUNTRY = "US";
