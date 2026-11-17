@@ -1,4 +1,8 @@
 import type Stripe from "stripe";
+import {
+  cancelBookingForExpiredSession,
+  fulfillBookingPayment,
+} from "@/lib/booking-payments";
 import { fulfillLifetimePurchase } from "@/lib/purchases";
 import { getStripe, getWebhookSecret } from "@/lib/stripe";
 
@@ -28,14 +32,29 @@ export async function POST(request: Request) {
     event.type === "checkout.session.completed" ||
     event.type === "checkout.session.async_payment_succeeded"
   ) {
-    // A failure here throws, so Stripe gets a 500 and retries the delivery.
-    const result = await fulfillLifetimePurchase(event.data.object);
-    if (!result.granted) {
-      // Not an error worth retrying (e.g. not paid yet), so still answer 200.
-      console.warn(
-        `Stripe event ${event.id} did not grant lifetime access: ${result.reason}`,
-      );
+    const session = event.data.object;
+    // Two kinds of payment arrive here; the session's own metadata says which. A failure
+    // in either throws, so Stripe gets a 500 and retries the delivery.
+    if (session.metadata?.product === "booking") {
+      const result = await fulfillBookingPayment(session);
+      if (result.outcome === "refunded" || result.outcome === "ignored") {
+        console.warn(
+          `Stripe event ${event.id}: booking payment ${result.outcome}: ${result.reason}`,
+        );
+      }
+    } else {
+      const result = await fulfillLifetimePurchase(session);
+      if (!result.granted) {
+        // Not an error worth retrying (e.g. not paid yet), so still answer 200.
+        console.warn(
+          `Stripe event ${event.id} did not grant lifetime access: ${result.reason}`,
+        );
+      }
     }
+  }
+
+  if (event.type === "checkout.session.expired") {
+    await cancelBookingForExpiredSession(event.data.object);
   }
 
   return new Response("ok");

@@ -153,6 +153,28 @@ export async function removePet(petId: string): Promise<RemovePetResult> {
   if (!auth.ok) return auth;
 
   try {
+    // A pet with a paid booking still to come can't be removed: that would delete the
+    // record of money the owner has paid for a stay that hasn't happened. Past paid
+    // stays don't block removal.
+    const today = new Date(
+      `${new Date().toISOString().slice(0, 10)}T00:00:00.000Z`,
+    );
+    const upcoming = await prisma.booking.count({
+      where: {
+        petId: auth.petId,
+        userId: auth.userId,
+        status: "CONFIRMED",
+        endDate: { gte: today },
+      },
+    });
+    if (upcoming > 0) {
+      return {
+        ok: false,
+        error:
+          "This pet has a paid booking coming up, so it can't be removed yet. Remove it after the stay.",
+      };
+    }
+
     // The database cascades the photo rows away, but not the files, so note their keys
     // first (scoped to this user, like everything else) and delete the files afterwards.
     const photos = await prisma.photo.findMany({

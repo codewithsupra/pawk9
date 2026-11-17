@@ -73,7 +73,7 @@ Do the steps in order. Nothing here has been run against production yet: the fir
 
 ## 9. Not done yet (know these before real customers)
 
-- **Booking checkout is not built.** Booking requests are saved as "waiting for payment" but nothing charges the owner yet, so do not give owners booking links in production until it is.
+- **Booking checkout is built and was tested end to end in Stripe test mode, but not with real money.** Before taking live payments, read the "Money maths" note in `CLAUDE.md`: PawK9 pays Stripe's fees out of its 5% fee, which leaves almost nothing. Also decide the platform's country/currency (it currently settles in EUR, so US daycares are paid via a currency conversion).
 - No error monitoring yet (Sentry needs your DSN).
 - No Content-Security-Policy (other security headers are on). Add one only after testing it on a preview: Clerk and Stripe load from several hosts.
 - No `account.updated` Stripe webhook: a daycare's "Stripe connected" status refreshes only when they open the Account page.

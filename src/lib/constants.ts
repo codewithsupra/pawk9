@@ -28,3 +28,15 @@ export const MAX_DAILY_RATE_CENTS = 100_000;
  * US and GB accounts but not IN.
  */
 export const CONNECT_COUNTRY = "US";
+
+/** PawK9's cut of each booking payment, in percent. Shown to daycares in the terms. */
+export const BOOKING_FEE_PERCENT = 5;
+
+/** How long an owner has to pay once sent to Stripe. Stripe's minimum is 30 minutes; a few more avoid clock-skew rejections. */
+export const CHECKOUT_EXPIRY_MINUTES = 35;
+
+/**
+ * An unpaid request only counts toward a link's cap of open requests for this long, so
+ * abandoned ones free their place even if Stripe's "expired" notice never arrives.
+ */
+export const OPEN_REQUEST_WINDOW_MS = 2 * 60 * 60 * 1000;

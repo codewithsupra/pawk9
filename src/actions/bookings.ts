@@ -8,8 +8,13 @@ import { authorize, authorizeUser } from "@/lib/authz";
 import { prisma } from "@/lib/db";
 import { lockPet } from "@/lib/locks";
 import { parseDay, quoteBooking } from "@/lib/bookings";
-import { MAX_OPEN_BOOKING_REQUESTS_PER_PET } from "@/lib/constants";
-import { getAppUrl } from "@/lib/stripe";
+import {
+  CHECKOUT_EXPIRY_MINUTES,
+  MAX_OPEN_BOOKING_REQUESTS_PER_PET,
+  OPEN_REQUEST_WINDOW_MS,
+} from "@/lib/constants";
+import { expireCheckoutSession, platformFee } from "@/lib/booking-payments";
+import { getAppUrl, getStripe } from "@/lib/stripe";
 
 export type BookingLinkResult =
   { ok: true; url: string } | { ok: false; error: string };
@@ -75,9 +80,8 @@ export async function getBookingLink(
   }
 }
 
-export type BookingRequestResult =
-  | { ok: true; days: number; amountCents: number }
-  | { ok: false; error: string };
+export type CheckoutResult =
+  { ok: true; url: string } | { ok: false; error: string };
 
 const requestSchema = z.object({
   code: z.string().min(1).max(64),
@@ -86,16 +90,17 @@ const requestSchema = z.object({
 });
 
 /**
- * Creates a booking request from the public booking page. There is no sign-in here (the
- * link's secret code is the only credential), so everything is decided on the server:
- * the price comes from the daycare's current rate, never from the browser. The booking
- * starts as PENDING_PAYMENT and is not a reservation until it is paid.
+ * Starts a booking from the public booking page: saves the request and sends the owner
+ * to Stripe to pay. There is no sign-in here (the link's secret code is the only
+ * credential), so everything is decided on the server: the price comes from the daycare's
+ * current rate, never from the browser. The booking stays PENDING_PAYMENT, which is not
+ * a reservation, until Stripe's webhook confirms the payment (fulfillBookingPayment).
  */
-export async function requestBooking(
+export async function startBookingCheckout(
   code: string,
   start: string,
   end: string,
-): Promise<BookingRequestResult> {
+): Promise<CheckoutResult> {
   const parsed = requestSchema.safeParse({ code, start, end });
   if (!parsed.success) {
     return { ok: false, error: "Choose a drop-off and a pick-up date." };
@@ -106,12 +111,25 @@ export async function requestBooking(
       where: { bookingCode: parsed.data.code },
       select: {
         id: true,
+        name: true,
         userId: true,
-        user: { select: { dailyRateCents: true, stripeChargesEnabled: true } },
+        user: {
+          select: {
+            dailyRateCents: true,
+            stripeChargesEnabled: true,
+            stripeAccountId: true,
+          },
+        },
       },
     });
     const rateCents = pet?.user.dailyRateCents ?? null;
-    if (!pet || rateCents === null || !pet.user.stripeChargesEnabled) {
+    const destination = pet?.user.stripeAccountId ?? null;
+    if (
+      !pet ||
+      rateCents === null ||
+      !destination ||
+      !pet.user.stripeChargesEnabled
+    ) {
       return { ok: false, error: "Booking isn't available for this link." };
     }
 
@@ -132,7 +150,7 @@ export async function requestBooking(
     const endDate = parseDay(parsed.data.end)!;
 
     // One transaction, so two requests at once can't both slip past the checks.
-    const outcome = await prisma.$transaction(async (tx) => {
+    const reserved = await prisma.$transaction(async (tx) => {
       // Postgres runs transactions side by side: take the pet's lock so simultaneous
       // requests queue up and each sees the previous one's result.
       await lockPet(tx, pet.id);
@@ -160,11 +178,16 @@ export async function requestBooking(
         },
         select: { id: true },
       });
-      if (same) return { created: false };
+      if (same) return { id: same.id };
 
-      // The link is public, so cap how many unpaid requests it can pile up.
+      // The link is public, so cap how many unpaid requests it can pile up. Old ones
+      // stop counting, so an abandoned request frees its place by itself.
       const open = await tx.booking.count({
-        where: { petId: pet.id, status: "PENDING_PAYMENT" },
+        where: {
+          petId: pet.id,
+          status: "PENDING_PAYMENT",
+          createdAt: { gt: new Date(Date.now() - OPEN_REQUEST_WINDOW_MS) },
+        },
       });
       if (open >= MAX_OPEN_BOOKING_REQUESTS_PER_PET) {
         return {
@@ -172,7 +195,7 @@ export async function requestBooking(
         };
       }
 
-      await tx.booking.create({
+      const created = await tx.booking.create({
         data: {
           startDate,
           endDate,
@@ -182,19 +205,99 @@ export async function requestBooking(
           petId: pet.id,
           userId: pet.userId,
         },
+        select: { id: true },
       });
-      return { created: true };
+      return { id: created.id };
     });
-    if ("error" in outcome && outcome.error) {
-      return { ok: false, error: outcome.error };
+    if (!reserved.id) {
+      return { ok: false, error: reserved.error ?? "Could not start booking." };
     }
 
-    return { ok: true, days: quote.days, amountCents: quote.amountCents };
+    const booking = await prisma.booking.findUniqueOrThrow({
+      where: { id: reserved.id },
+      select: {
+        id: true,
+        amountCents: true,
+        days: true,
+        stripeSessionId: true,
+      },
+    });
+
+    // Clicking again while a payment page is still open goes back to that same page,
+    // instead of making another one each time.
+    const stripe = getStripe();
+    if (booking.stripeSessionId) {
+      try {
+        const existing = await stripe.checkout.sessions.retrieve(
+          booking.stripeSessionId,
+        );
+        if (existing.status === "open" && existing.url) {
+          return { ok: true, url: existing.url };
+        }
+      } catch {
+        // Can't read it: just make a new one.
+      }
+    }
+
+    const requestHeaders = await headers();
+    const base = getAppUrl(
+      requestHeaders.get("host"),
+      requestHeaders.get("x-forwarded-proto") ?? "http",
+    );
+    const fee = platformFee(booking.amountCents);
+    const metadata = { product: "booking", bookingId: booking.id };
+
+    const session = await stripe.checkout.sessions.create({
+      mode: "payment",
+      line_items: [
+        {
+          quantity: 1,
+          price_data: {
+            currency: "usd",
+            unit_amount: booking.amountCents,
+            product_data: {
+              name: `Stay for ${pet.name}`,
+              description: `${parsed.data.start} to ${parsed.data.end} (${booking.days} ${booking.days === 1 ? "day" : "days"})`,
+            },
+          },
+        },
+      ],
+      // A destination charge: the owner pays PawK9's Stripe account, the daycare is paid
+      // the amount minus our fee, and the daycare's account is the one that gets paid out.
+      payment_intent_data: {
+        application_fee_amount: fee,
+        transfer_data: { destination },
+        metadata,
+      },
+      metadata,
+      // Stripe needs at least 30 minutes; a little more avoids clock-skew rejections.
+      expires_at: Math.floor(Date.now() / 1000) + CHECKOUT_EXPIRY_MINUTES * 60,
+      success_url: `${base}/book/${parsed.data.code}/thanks`,
+      cancel_url: `${base}/book/${parsed.data.code}`,
+    });
+    if (!session.url) throw new Error("Stripe did not return a checkout URL.");
+
+    // Remember the session, unless the request was cancelled in the meantime.
+    const { count } = await prisma.booking.updateMany({
+      where: { id: booking.id, status: "PENDING_PAYMENT" },
+      data: { stripeSessionId: session.id, platformFeeCents: fee },
+    });
+    if (count === 0) {
+      await expireCheckoutSession(session.id);
+      return {
+        ok: false,
+        error: "This request was cancelled. Please start again.",
+      };
+    }
+    if (booking.stripeSessionId)
+      await expireCheckoutSession(booking.stripeSessionId);
+
+    return { ok: true, url: session.url };
   } catch (error) {
-    console.error("Failed to create a booking request:", error);
+    console.error("Failed to start booking checkout:", error);
     return {
       ok: false,
-      error: "Could not save your request. Please try again.",
+      error: "Could not start payment. Please try again in a moment.",
     };
   }
 }
@@ -202,9 +305,10 @@ export async function requestBooking(
 export type CancelBookingResult = { ok: true } | { ok: false; error: string };
 
 /**
- * Cancels one of the signed-in daycare's unpaid booking requests. Only a request still
- * waiting for payment can be cancelled here: a confirmed (paid) booking needs a refund,
- * which is not built yet.
+ * Cancels one of the signed-in daycare's unpaid booking requests, and closes its payment
+ * page so it can't be paid afterwards (if it somehow is, the webhook refunds it). Only a
+ * request still waiting for payment can be cancelled here: a confirmed (paid) booking
+ * needs a refund, which is not built yet.
  */
 export async function cancelBookingRequest(
   bookingId: string,
@@ -217,6 +321,11 @@ export async function cancelBookingRequest(
   }
 
   try {
+    const booking = await prisma.booking.findFirst({
+      where: { id: bookingId, userId: auth.userId, status: "PENDING_PAYMENT" },
+      select: { stripeSessionId: true },
+    });
+
     // Matches on the owner and the status together, so someone else's booking, a paid
     // one and a missing one all look the same.
     const { count } = await prisma.booking.updateMany({
@@ -226,6 +335,7 @@ export async function cancelBookingRequest(
     if (count === 0) {
       return { ok: false, error: "That request can't be cancelled." };
     }
+    await expireCheckoutSession(booking?.stripeSessionId ?? null);
     revalidatePath("/app/bookings");
     return { ok: true };
   } catch (error) {

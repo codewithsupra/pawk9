@@ -2,7 +2,7 @@
 
 import { LoaderCircle } from "lucide-react";
 import { useState } from "react";
-import { requestBooking } from "@/actions/bookings";
+import { startBookingCheckout } from "@/actions/bookings";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { formatMoney, quoteBooking } from "@/lib/bookings";
@@ -23,10 +23,6 @@ export default function BookingForm({
   const [end, setEnd] = useState("");
   const [isSending, setIsSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [sent, setSent] = useState<{
-    days: number;
-    amountCents: number;
-  } | null>(null);
 
   const quote =
     start && end ? quoteBooking({ start, end, rateCents, today }) : null;
@@ -35,32 +31,18 @@ export default function BookingForm({
     setIsSending(true);
     setError(null);
     try {
-      const result = await requestBooking(code, start, end);
-      if (result.ok) setSent(result);
-      else setError(result.error);
+      const result = await startBookingCheckout(code, start, end);
+      if (result.ok) {
+        // Off to Stripe to pay; stay in the loading state until the page changes.
+        window.location.assign(result.url);
+        return;
+      }
+      setError(result.error);
     } catch {
-      setError("Could not send your request. Please try again.");
-    } finally {
-      setIsSending(false);
+      setError("Could not start payment. Please try again.");
     }
+    setIsSending(false);
   };
-
-  if (sent) {
-    return (
-      <div
-        role="status"
-        className="mt-6 rounded-md bg-emerald-50 p-4 text-emerald-900"
-      >
-        <p className="font-semibold">Your request is saved.</p>
-        <p className="mt-1">
-          {sent.days} {sent.days === 1 ? "day" : "days"},{" "}
-          {formatMoney(sent.amountCents)}, {start} to {end}. It isn&apos;t
-          confirmed until it is paid, and online payment isn&apos;t available
-          yet, so your daycare will be in touch.
-        </p>
-      </div>
-    );
-  }
 
   return (
     <div className="mt-6 flex flex-col gap-4">
@@ -124,10 +106,10 @@ export default function BookingForm({
         {isSending ? (
           <>
             <LoaderCircle className="animate-spin" aria-hidden="true" />
-            Sending…
+            Taking you to payment…
           </>
         ) : (
-          "Request booking"
+          "Continue to payment"
         )}
       </Button>
     </div>

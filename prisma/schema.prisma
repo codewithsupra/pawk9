@@ -156,6 +156,16 @@ model Booking {
   amountCents    Int
   status         BookingStatus @default(PENDING_PAYMENT)
 
+  // Payment (see src/lib/booking-payments.ts). The fee is PawK9's cut of amountCents,
+  // fixed when the Checkout Session is made. The session is the latest one for this
+  // booking; the payment intent is the payment that confirmed it.
+  platformFeeCents      Int       @default(0)
+  stripeSessionId       String?   @unique
+  stripePaymentIntentId String?   @unique
+  paidAt                DateTime?
+  // Set when a payment was returned automatically (see fulfillBookingPayment).
+  refundedAt            DateTime?
+
   petId  String
   pet    Pet    @relation(fields: [petId], references: [id], onDelete: Cascade)
   // The daycare that owns the pet, denormalised so every query can be scoped to it.
