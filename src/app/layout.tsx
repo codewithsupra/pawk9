@@ -4,6 +4,7 @@ import { Inter } from "next/font/google";
 import "./globals.css";
 import { cn } from "@/lib/utils";
 import { Toaster } from "@/components/ui/sonner";
+import { clerkAppearance } from "@/lib/clerk-appearance";
 
 const inter = Inter({
   subsets: ["latin"],
@@ -24,6 +25,7 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
       <body className="min-h-screen flex flex-col  text-zinc-900 bg-[#E5E8EC]">
         {/* Fallback, not force: a redirect_url from a protected route still wins. */}
         <ClerkProvider
+          appearance={clerkAppearance}
           afterSignOutUrl="/"
           signInFallbackRedirectUrl="/app/dashboard"
           signUpFallbackRedirectUrl="/app/dashboard"

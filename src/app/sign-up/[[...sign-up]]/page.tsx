@@ -1,12 +1,16 @@
 import { SignUp } from "@clerk/nextjs";
 import { Suspense } from "react";
+import AuthShell from "@/components/auth-shell";
+import { authFormElements } from "@/lib/clerk-appearance";
+
+export const metadata = { title: "Sign up" };
 
 export default function SignUpPage() {
   return (
-    <div className="flex min-h-screen items-center justify-center">
+    <AuthShell mode="sign-up">
       <Suspense>
-        <SignUp />
+        <SignUp appearance={{ elements: authFormElements }} />
       </Suspense>
-    </div>
+    </AuthShell>
   );
 }
