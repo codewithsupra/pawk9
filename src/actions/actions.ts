@@ -5,6 +5,7 @@ import { getCurrentUser, hasAccess } from "@/lib/auth";
 import { authorize, NOT_SIGNED_IN, SUBSCRIPTION_REQUIRED } from "@/lib/authz";
 import { petSelect, recentStays } from "@/lib/data";
 import { prisma } from "@/lib/db";
+import { lockPet } from "@/lib/locks";
 import { deleteObject } from "@/lib/storage";
 import { DEFAULT_PET_IMAGE } from "@/lib/constants";
 import {
@@ -191,14 +192,17 @@ export async function checkInPet(petId: string): Promise<StaysResult> {
   if (!auth.ok) return auth;
 
   try {
-    // One transaction, so two quick check-ins can't both see "no open stay" and each
-    // create one. (SQLite can't enforce "one open stay per pet" in the schema.)
+    // One transaction holding a lock on the pet, so two quick check-ins can't both see
+    // "no open stay" and each create one. The database also refuses a second open stay
+    // (the Stay_one_open_per_pet index) as a last line of defence.
     const rows = await prisma.$transaction(async (tx) => {
       const pet = await tx.pet.findFirst({
         where: { id: auth.petId, userId: auth.userId },
         select: { id: true },
       });
       if (!pet) return null;
+      // Without this, two simultaneous check-ins could both see "no open stay".
+      await lockPet(tx, pet.id);
 
       const open = await tx.stay.findFirst({
         where: { petId: pet.id, checkedOutAt: null },

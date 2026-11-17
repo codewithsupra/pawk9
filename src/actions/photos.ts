@@ -9,6 +9,7 @@ import {
 } from "@/lib/constants";
 import { recentPhotos } from "@/lib/data";
 import { prisma } from "@/lib/db";
+import { lockUser } from "@/lib/locks";
 import {
   detectImageType,
   MAX_PHOTO_BYTES,
@@ -180,6 +181,9 @@ export async function sendPhotoToOwner(photoId: string): Promise<PhotosResult> {
     // clicks at once can't both pass. If the email then fails, the record is removed.
     const now = Date.now();
     const reservation = await prisma.$transaction(async (tx) => {
+      // Postgres runs transactions side by side: lock the user so simultaneous sends
+      // queue up and each sees the previous one's record.
+      await lockUser(tx, auth.userId);
       const recentOfPhoto = await tx.photoSend.findFirst({
         where: {
           photoId: photo.id,

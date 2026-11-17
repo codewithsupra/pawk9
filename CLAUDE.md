@@ -11,7 +11,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - `npm run dev` — dev server (Turbopack). `npm run build` / `npm start` — production build / serve.
 - `npm run lint` — ESLint (flat config). `npm run format` / `format:check` — Prettier.
 - `npm run db:migrate` — `prisma migrate dev`. `npm run db:seed` — reset pets and re-seed. `npm run db:studio` — Prisma Studio.
-- After a schema change run `db:migrate` **and** `npx prisma generate`: `migrate dev` does not regenerate the client in Prisma 7. `postinstall` also runs `prisma generate`.
+- After a schema change run `db:migrate` **and** `npx prisma generate`: `migrate dev` does not regenerate the client in Prisma 7. `postinstall` also runs `prisma generate`. `migrate dev` refuses to run without a terminal: instead save the SQL from `prisma migrate diff --from-config-datasource --to-schema prisma/schema.prisma --script` as `prisma/migrations/<timestamp>_name/migration.sql`, then run `prisma migrate deploy`. In production run only `prisma migrate deploy`.
 - After adding, removing or renaming a route, run `npx next typegen` if `tsc` complains about `.next/types/validator.ts` (stale generated file; the dev server does not refresh it).
 - No test runner is configured.
 
@@ -19,7 +19,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Architecture
 
-PawK9 is a pet-daycare dashboard (ByteGrad course project) on the Next.js App Router, Tailwind CSS v4, shadcn/ui (style `base-nova`, built on `@base-ui/react`; add components with the `shadcn` CLI, config in `components.json`), Clerk for auth, and Prisma + SQLite for data. Path alias `@/*` → `src/*`.
+PawK9 is a pet-daycare dashboard (ByteGrad course project) on the Next.js App Router, Tailwind CSS v4, shadcn/ui (style `base-nova`, built on `@base-ui/react`; add components with the `shadcn` CLI, config in `components.json`), Clerk for auth, and Prisma + Postgres for data. Path alias `@/*` → `src/*`.
 
 **Routes** under `src/app/`: `(marketing)` is the public landing page, `sign-in/[[...sign-in]]` and `sign-up/[[...sign-up]]` are Clerk's pages, and `(priv)/app/*` is the signed-in area (`dashboard`, and `account`, which shows the user's details, plan (lifetime or subscription) and opens Clerk's modal for profile, security and billing).
 
@@ -28,7 +28,7 @@ PawK9 is a pet-daycare dashboard (ByteGrad course project) on the Next.js App Ro
 - `src/proxy.ts` protects `/app(.*)` with `auth.protect()`. The private layout calls `auth.protect()` again before querying. The same proxy redirects signed-in users from `/` to `/app/dashboard` (done there so the landing page stays static).
 - Server actions are public endpoints, so each one re-checks auth itself and never relies on the page being protected.
 - Users sign up in Clerk. The `User` row is created lazily by `getCurrentUser()` in `src/lib/auth.ts` (it also handles two first requests racing). `Pet.userId` is required and cascades on user delete.
-- Reads go through `getPets(userId)` in `src/lib/data.ts`, whose required `userId` makes an unscoped read impossible by construction. Take it from `getCurrentUser()`, never from the client. Any new pet query must filter on `userId` too, because SQLite has no row-level security and scoping is purely in application code.
+- Reads go through `getPets(userId)` in `src/lib/data.ts`, whose required `userId` makes an unscoped read impossible by construction. Take it from `getCurrentUser()`, never from the client. Any new pet query must filter on `userId` too, because Postgres row-level security isn't used here, so scoping is purely in application code.
 - Every pet query and mutation is scoped to the current user. `editPet`, `removePet`, `checkInPet` and `checkOutPet` match on `{ id, userId }`, so another user's pet looks like a missing one.
 - Where users land after signing in or up is set by the `signInFallbackRedirectUrl` / `signUpFallbackRedirectUrl` props on `ClerkProvider` in `src/app/layout.tsx` (`/app/dashboard`). The `*_FALLBACK_REDIRECT_URL` values that `clerk init` wrote to `.env` point at `/`, so don't rely on them. Check the result in a browser with `window.Clerk.buildAfterSignInUrl()`.
 - Clerk dev instances answer a first cookie-less request with a handshake redirect, even on public routes, so `curl` cannot tell you whether a route is protected. Use a browser.
@@ -61,11 +61,11 @@ All redirect rules are defined in `src/lib/redirects.ts`, which has no imports b
 - **Signed-out access to `/app/*`** is `auth.protect()` in the proxy. It redirects to sign-in with `redirect_url`.
 - Post sign-in, sign-up and sign-out destinations are props on `ClerkProvider` in `src/app/layout.tsx`.
 
-### Data (Prisma 7 + SQLite)
+### Data (Prisma 7 + Postgres)
 
-- `prisma/schema.prisma`, migrations in `prisma/migrations`, config in `prisma.config.ts`. The database file is `prisma/dev.db` (gitignored).
+- `prisma/schema.prisma`, migrations in `prisma/migrations`, config in `prisma.config.ts`. Local development uses a Postgres database `pawk9_dev` (Homebrew `postgresql@14`; start it with `brew services start postgresql@14`; `DATABASE_URL=postgresql://<your-os-user>@localhost:5432/pawk9_dev` in `.env`). Production is Neon. Migrations were reset to one Postgres baseline (`*_init_postgres`) when the app left SQLite; the old SQLite file `prisma/dev.db` (gitignored) is no longer used and can be deleted.
 - The client is cached on `globalThis` in dev (to survive hot reloads), keyed on a fingerprint of the generated models. After a schema change run `db:migrate` + `prisma generate`, and a reload builds a fresh client. If you ever see `Unknown argument <newField>` from a long-running dev server, it is a stale client: restart `npm run dev`. Test scripts run in fresh processes, so they cannot catch this; to be sure, exercise the path through the running server.
-- Prisma 7 needs a driver adapter: `src/lib/db.ts` builds the client with `@prisma/adapter-better-sqlite3` and caches it on `globalThis` for hot reloads. The generated client is in `src/generated/prisma` (gitignored).
+- Prisma 7 needs a driver adapter: `src/lib/db.ts` builds the client with `@prisma/adapter-pg` and caches it on `globalThis` for hot reloads. The generated client is in `src/generated/prisma` (gitignored).
 - Keep `prisma`, `@prisma/client` and the adapter on the same version. The `prisma` CLI's npm `latest` tag points at an 8.0 release candidate, so pin 7.10.x when installing.
 - `prisma/seed.ts` resets pets and gives **every user in the database** a copy of the sample pets, and keeps existing users. The sample pets use Unsplash photos (`images.unsplash.com/photo-...`, an allowed host in `next.config.ts`). Re-running the seed deletes **every** pet, including ones you added; to change only the sample pets' fields, update them by name instead. A newly signed-in user starts with no pets: sign in once, then run `npm run db:seed`.
 
@@ -96,7 +96,8 @@ Search state is a separate `SearchContextProvider`. `useFilteredPets()` in `src/
 ### Stays (check in / check out)
 
 - A `Stay` is one visit: `checkedInAt`, and `checkedOutAt` (null while the pet is in). A pet is "checked in" while it has a stay with a null `checkedOutAt`; `getCurrentStay()` / `isCheckedIn()` in `src/lib/stays.ts` are the only definition of that. `Stay.userId` duplicates the pet's owner so every query can be scoped to the user directly.
-- **At most one open stay per pet.** The schema cannot say that in SQLite, so `checkInPet` enforces it by checking and creating inside one `$transaction` (tested with 8 simultaneous check-ins: exactly one stay). Keep any new code that creates stays going through it.
+- **At most one open stay per pet.** The database enforces it with a partial unique index (`Stay_one_open_per_pet`, written by hand in the baseline migration since Prisma can't express it), and `checkInPet` also locks the pet row inside its `$transaction` so concurrent check-ins queue instead of failing (tested with 8 simultaneous check-ins: exactly one stay). Keep any new code that creates stays going through it.
+- **Concurrency on Postgres:** transactions run side by side, so a "check, then create" is only safe after locking the row that owns the data. `src/lib/locks.ts` has `lockPet` / `lockUser` (`SELECT … FOR UPDATE`); call them first thing in the transaction. Used by `checkInPet`, `requestBooking` (the 5-request cap) and `sendPhotoToOwner` (the hourly limit). SQLite used to serialize transactions, so this was never needed before; any new check-then-write needs it too.
 - `checkInPet` / `checkOutPet` are idempotent and return the pet's whole recent-stays list, which the client swaps in wholesale. That makes two tabs that disagreed heal on the next action, and means the optimistic temp stay is replaced by the real one.
 - `Pet.stays` holds only the 10 most recent visits (`recentStays` in `src/lib/data.ts`); older history stays in the database. `petSelect` is the one select used for every query that returns a pet, so reads and the results of create/update stay identical.
 - "Remove" (`removePet`) deletes the pet and its stays (cascade). Before stays existed, "checkout" meant that; do not reintroduce the word for it.

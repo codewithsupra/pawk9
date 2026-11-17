@@ -6,6 +6,7 @@ import { z } from "zod";
 import { revalidatePath } from "next/cache";
 import { authorize, authorizeUser } from "@/lib/authz";
 import { prisma } from "@/lib/db";
+import { lockPet } from "@/lib/locks";
 import { parseDay, quoteBooking } from "@/lib/bookings";
 import { MAX_OPEN_BOOKING_REQUESTS_PER_PET } from "@/lib/constants";
 import { getAppUrl } from "@/lib/stripe";
@@ -132,6 +133,9 @@ export async function requestBooking(
 
     // One transaction, so two requests at once can't both slip past the checks.
     const outcome = await prisma.$transaction(async (tx) => {
+      // Postgres runs transactions side by side: take the pet's lock so simultaneous
+      // requests queue up and each sees the previous one's result.
+      await lockPet(tx, pet.id);
       // The pet is already booked and paid for on some of these days.
       const taken = await tx.booking.findFirst({
         where: {
