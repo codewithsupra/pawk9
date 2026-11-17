@@ -2,6 +2,7 @@ import Logo from "@/components/logo";
 import { Button } from "@/components/ui/button";
 import Link from "next/link";
 import Image from "next/image";
+import LegalLinks from "@/components/legal-links";
 import preview from "../../../public/pawk9-preview.jpg";
 
 export default function Home() {
@@ -43,6 +44,7 @@ export default function Home() {
               <Link href="/sign-in">Log in</Link>
             </Button>
           </div>
+          <LegalLinks className="mt-8 opacity-70" />
         </div>
       </div>
     </main>

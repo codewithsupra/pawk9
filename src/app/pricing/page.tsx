@@ -2,6 +2,7 @@ import { PricingTable, SignInButton } from "@clerk/nextjs";
 import Link from "next/link";
 import { Suspense } from "react";
 import { startLifetimeCheckout } from "@/actions/billing";
+import LegalLinks from "@/components/legal-links";
 import Logo from "@/components/logo";
 import { Button } from "@/components/ui/button";
 import { getCurrentUser } from "@/lib/auth";
@@ -23,6 +24,7 @@ export default function PricingPage() {
       <Suspense>
         <LifetimeOffer />
       </Suspense>
+      <LegalLinks className="opacity-70" />
     </main>
   );
 }

@@ -1,4 +1,5 @@
 import { cacheLife } from "next/cache";
+import LegalLinks from "@/components/legal-links";
 
 export default async function AppFooter() {
   // The year comes from the clock, which Next won't allow during prerendering unless the
@@ -12,6 +13,7 @@ export default async function AppFooter() {
       <small className="opacity-50">
         &copy; {year} PawK9. All rights reserved.
       </small>
+      <LegalLinks className="mt-1 opacity-60" />
     </footer>
   );
 }

@@ -4,7 +4,7 @@ export function Branding() {
   return (
     <section>
       <H1>
-        Pet <span className="font-semibold">Soft</span>
+        Paw <span className="font-semibold">K9</span>
       </H1>
       <p>Manage your day care with ease</p>
     </section>

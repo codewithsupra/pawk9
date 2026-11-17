@@ -12,7 +12,8 @@
     "postinstall": "prisma generate",
     "db:migrate": "prisma migrate dev",
     "db:seed": "prisma db seed",
-    "db:studio": "prisma studio"
+    "db:studio": "prisma studio",
+    "build:vercel": "prisma migrate deploy && next build"
   },
   "dependencies": {
     "@base-ui/react": "^1.9.0",
