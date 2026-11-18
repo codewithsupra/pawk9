@@ -1,36 +1,56 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# PawK9
 
-## Getting Started
+A pet-daycare dashboard. Daycares manage guests, check pets in and out, share photos with owners, and take paid bookings online.
 
-First, run the development server:
+**Live demo:** https://pawk9.vercel.app (Stripe and Clerk run in test mode, so no real money moves. Pay with card `4242 4242 4242 4242`.)
+
+![PawK9 dashboard](public/pawk9-preview.jpg)
+
+> It started from the ByteGrad "Petsoft" course project (pet list, add/edit/remove, search). Everything below was built on top of that: auth, billing, check-ins, photos, online booking and payments, and the move to production.
+
+## What it does
+
+- **Guests and stays.** Add, edit and search pets, with optimistic updates. Check pets in and out, with a visit history for each.
+- **Photos for owners.** Upload photos, then email one to the owner as a link that expires after 7 days.
+- **Online booking and payment.** Each pet gets a private booking link. Owners pick dates and pay by card, and the daycare is paid directly. PawK9 keeps an 8% platform fee.
+- **Plans.** Subscription through Clerk Billing, or a one-time lifetime purchase through Stripe.
+
+## Interesting engineering
+
+**A booking is confirmed only by Stripe's webhook.** The page the owner returns to proves nothing, because anyone can open that URL. The webhook checks that the payment is paid, in USD and for exactly the stored amount. If a payment can't be honoured (the request was cancelled, another booking took the dates, or it is a duplicate), it is refunded in full, fee included, with an idempotency key so retries can't refund twice.
+
+**No double-booking under concurrency.** Postgres runs transactions side by side, so a "check, then create" can pass twice at once. Check-in, booking requests and photo-send limits lock the owning row (`SELECT ... FOR UPDATE`) first, so the second request waits and sees the first one's result. A partial unique index (one open stay per pet) is the backstop. This was tested with 8 simultaneous check-ins, which produced exactly one stay.
+
+**Every query is scoped to the signed-in user.** The data layer requires a `userId`, so an unscoped read can't be written. Server actions are public endpoints, so each one re-checks sign-in and plan access itself instead of trusting the page. Another user's pet looks the same as a missing one.
+
+**Private photo storage.**
+- Photos live in private Vercel Blob and are served only through an authenticated route.
+- Uploads are validated by their real bytes: JPEG, PNG and WebP only, SVG refused, 3 MB cap.
+- The browser re-encodes images first, which also strips GPS data.
+- Photos sent to owners use HMAC-signed links that name one photo and expire.
+
+**One validation source.** A single zod schema validates forms on the client and re-validates on the server, and the UI types are inferred from it.
+
+## Stack
+
+Next.js 16 (App Router, Turbopack, cache components), React 19, TypeScript, Tailwind CSS v4, shadcn/ui, Clerk (auth and billing), Prisma 7 on Postgres (Neon), Stripe (Checkout and Connect Express), Vercel Blob, Resend, zod, react-hook-form.
+
+## Run it locally
+
+You need Node 24, Postgres, and accounts for Clerk, Stripe and Resend.
 
 ```bash
+npm install
+cp .env.example .env     # then fill in the values
+npm run db:migrate       # create the tables
+npx prisma generate
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Sign in once, then run `npm run db:seed` to give your account sample pets. Forward Stripe webhooks locally with `stripe listen --forward-to localhost:3000/api/webhooks/stripe`.
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+More detail is in [DEPLOYMENT.md](DEPLOYMENT.md) (environment variables and the deploy checklist) and [CLAUDE.md](CLAUDE.md) (architecture notes).
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+## Known gaps
 
-## Learn More
-
-To learn more about Next.js, take a look at the following resources:
-
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
-
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
-
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+It is a test-mode deployment. Paid bookings can't yet be cancelled or refunded from the app, there is no error monitoring, and the Stripe connection status refreshes only when the daycare opens the Account page.
