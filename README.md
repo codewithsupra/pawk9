@@ -1,5 +1,7 @@
 # PawK9
 
+[![CI](https://github.com/codewithsupra/pawk9/actions/workflows/ci.yml/badge.svg)](https://github.com/codewithsupra/pawk9/actions/workflows/ci.yml)
+
 A pet-daycare dashboard. Daycares manage guests, check pets in and out, share photos with owners, and take paid bookings online.
 
 **Live demo:** https://pawk9.vercel.app (Stripe and Clerk run in test mode, so no real money moves. Pay with card `4242 4242 4242 4242`.)
@@ -24,6 +26,7 @@ A pet-daycare dashboard. Daycares manage guests, check pets in and out, share ph
 **Every query is scoped to the signed-in user.** The data layer requires a `userId`, so an unscoped read can't be written. Server actions are public endpoints, so each one re-checks sign-in and plan access itself instead of trusting the page. Another user's pet looks the same as a missing one.
 
 **Private photo storage.**
+
 - Photos live in private Vercel Blob and are served only through an authenticated route.
 - Uploads are validated by their real bytes: JPEG, PNG and WebP only, SVG refused, 3 MB cap.
 - The browser re-encodes images first, which also strips GPS data.
@@ -34,6 +37,10 @@ A pet-daycare dashboard. Daycares manage guests, check pets in and out, share ph
 ## Stack
 
 Next.js 16 (App Router, Turbopack, cache components), React 19, TypeScript, Tailwind CSS v4, shadcn/ui, Clerk (auth and billing), Prisma 7 on Postgres (Neon), Stripe (Checkout and Connect Express), Vercel Blob, Resend, zod, react-hook-form.
+
+## Tests
+
+`npm test` runs 75 unit tests (Vitest). The most important ones cover the payment webhook: confirming a booking, replayed deliveries, refunds for cancelled, overlapping and duplicate payments, and refusing wrong amounts or currencies. They run against an in-memory stand-in for the database and Stripe, and each was checked by breaking the real code to confirm the test fails. The others cover price maths, signed photo links, image-type detection, form validation and redirects. GitHub Actions runs lint, typecheck, formatting and the tests on every push.
 
 ## Run it locally
 
