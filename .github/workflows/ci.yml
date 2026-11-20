@@ -23,6 +23,9 @@ jobs:
         env:
           DATABASE_URL: postgresql://ci:ci@localhost:5432/ci
       - run: npm run lint
+      # Next generates the PageProps/RouteContext types (and next-env.d.ts) rather than
+      # committing them, so a fresh checkout needs this before the typecheck.
+      - run: npx next typegen
       - run: npx tsc --noEmit
       - run: npm run format:check
       - run: npm test
