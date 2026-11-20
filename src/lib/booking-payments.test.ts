@@ -6,6 +6,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 type FakeBooking = {
   id: string;
   petId: string;
+  userId: string;
   status: "PENDING_PAYMENT" | "CONFIRMED" | "CANCELLED";
   amountCents: number;
   startDate: Date;
@@ -22,6 +23,7 @@ const fake = vi.hoisted(() => ({
   refunds: [] as { params: Record<string, unknown>; options: unknown }[],
   expired: [] as string[],
   expireThrows: false,
+  refundError: null as { code?: string } | null,
 }));
 
 vi.mock("@/lib/locks", () => ({
@@ -34,6 +36,7 @@ vi.mock("@/lib/stripe", () => ({
   getStripe: () => ({
     refunds: {
       create: async (params: Record<string, unknown>, options: unknown) => {
+        if (fake.refundError) throw fake.refundError;
         fake.refunds.push({ params, options });
         return { id: "re_1" };
       },
@@ -58,26 +61,34 @@ vi.mock("@/lib/db", () => {
       if (!found) throw new Error("not found");
       return found;
     },
-    // Only the overlap query uses findFirst in the code under test.
-    findFirst: async ({
-      where,
-    }: {
-      where: {
-        petId: string;
-        id: { not: string };
-        status: string;
-        startDate: { lte: Date };
-        endDate: { gte: Date };
-      };
-    }) =>
-      fake.bookings.find(
-        (b) =>
-          b.petId === where.petId &&
-          b.id !== where.id.not &&
-          b.status === where.status &&
-          b.startDate <= where.startDate.lte &&
-          b.endDate >= where.endDate.gte,
-      ) ?? null,
+    findFirst: async ({ where }: { where: Record<string, unknown> }) => {
+      if ("startDate" in where) {
+        // The overlap query.
+        const w = where as unknown as {
+          petId: string;
+          id: { not: string };
+          status: string;
+          startDate: { lte: Date };
+          endDate: { gte: Date };
+        };
+        return (
+          fake.bookings.find(
+            (b) =>
+              b.petId === w.petId &&
+              b.id !== w.id.not &&
+              b.status === w.status &&
+              b.startDate <= w.startDate.lte &&
+              b.endDate >= w.endDate.gte,
+          ) ?? null
+        );
+      }
+      // "This booking, if it belongs to this daycare."
+      return (
+        fake.bookings.find(
+          (b) => b.id === where.id && b.userId === where.userId,
+        ) ?? null
+      );
+    },
     update: async ({
       where,
       data,
@@ -115,6 +126,7 @@ import {
   expireCheckoutSession,
   fulfillBookingPayment,
   platformFee,
+  refundAndCancelBooking,
 } from "@/lib/booking-payments";
 
 const day = (text: string) => new Date(`${text}T00:00:00.000Z`);
@@ -123,6 +135,7 @@ function addBooking(overrides: Partial<FakeBooking> = {}) {
   const created: FakeBooking = {
     id: "b1",
     petId: "pet1",
+    userId: "u1",
     status: "PENDING_PAYMENT",
     amountCents: 13500,
     startDate: day("2026-12-10"),
@@ -156,6 +169,7 @@ beforeEach(() => {
   fake.refunds.length = 0;
   fake.expired.length = 0;
   fake.expireThrows = false;
+  fake.refundError = null;
   vi.spyOn(console, "warn").mockImplementation(() => {});
   vi.spyOn(console, "error").mockImplementation(() => {});
 });
@@ -398,5 +412,140 @@ describe("expireCheckoutSession", () => {
   it("never throws, even when Stripe refuses", async () => {
     fake.expireThrows = true;
     await expect(expireCheckoutSession("cs_1")).resolves.toBeUndefined();
+  });
+});
+
+describe("refundAndCancelBooking", () => {
+  const NOW = new Date("2026-12-11T15:00:00.000Z");
+  const paid = (overrides: Partial<FakeBooking> = {}) =>
+    addBooking({
+      status: "CONFIRMED",
+      stripePaymentIntentId: "pi_1",
+      paidAt: new Date(),
+      ...overrides,
+    });
+  const run = (overrides: { bookingId?: string; userId?: string } = {}) =>
+    refundAndCancelBooking({
+      bookingId: "b1",
+      userId: "u1",
+      now: NOW,
+      ...overrides,
+    });
+
+  it("refunds in full, fee included, and cancels the booking", async () => {
+    const booking = paid();
+    const result = await run();
+
+    expect(result).toEqual({ ok: true, paymentIntentId: "pi_1" });
+    expect(fake.refunds).toHaveLength(1);
+    expect(fake.refunds[0].params).toMatchObject({
+      payment_intent: "pi_1",
+      reverse_transfer: true,
+      refund_application_fee: true,
+    });
+    expect(fake.refunds[0].options).toEqual({
+      idempotencyKey: "booking-cancel-pi_1",
+    });
+    expect(booking.status).toBe("CANCELLED");
+    expect(booking.refundedAt).toBeInstanceOf(Date);
+    // Kept, so a replayed payment webhook is recognised as already handled.
+    expect(booking.stripePaymentIntentId).toBe("pi_1");
+  });
+
+  it("frees the dates for someone else", async () => {
+    paid();
+    await run();
+    const other = addBooking({
+      id: "b2",
+      stripeSessionId: "cs_2",
+    });
+    const result = await fulfillBookingPayment(
+      paidSession({
+        id: "cs_2",
+        payment_intent: "pi_2",
+        metadata: { product: "booking", bookingId: "b2" },
+      }),
+    );
+    expect(result).toEqual({ outcome: "confirmed" });
+    expect(other.status).toBe("CONFIRMED");
+  });
+
+  it("a replayed payment webhook after the cancellation refunds nothing more", async () => {
+    paid();
+    await run();
+    fake.refunds.length = 0;
+
+    const replay = await fulfillBookingPayment(paidSession());
+    expect(replay).toEqual({ outcome: "already-confirmed" });
+    expect(fake.refunds).toHaveLength(0);
+  });
+
+  it("cannot cancel another daycare's booking, and says nothing about it", async () => {
+    const booking = paid({ userId: "someone-else" });
+    const result = await run();
+
+    expect(result).toEqual({
+      ok: false,
+      error: "That booking can't be cancelled.",
+    });
+    expect(booking.status).toBe("CONFIRMED");
+    expect(fake.refunds).toHaveLength(0);
+  });
+
+  it.each(["PENDING_PAYMENT", "CANCELLED"] as const)(
+    "refuses a booking that is %s",
+    async (status) => {
+      addBooking({ status, stripePaymentIntentId: "pi_1" });
+      const result = await run();
+      expect(result.ok).toBe(false);
+      expect(fake.refunds).toHaveLength(0);
+    },
+  );
+
+  it("refuses an unknown booking id", async () => {
+    expect((await run({ bookingId: "nope" })).ok).toBe(false);
+  });
+
+  it("refuses a stay that has already ended", async () => {
+    const booking = paid({ endDate: day("2026-12-10") });
+    const result = await run();
+    expect(result.ok).toBe(false);
+    expect(booking.status).toBe("CONFIRMED");
+    expect(fake.refunds).toHaveLength(0);
+  });
+
+  it("still allows a stay that ends today", async () => {
+    paid({ endDate: day("2026-12-11") });
+    expect((await run()).ok).toBe(true);
+  });
+
+  it("changes nothing when Stripe refuses the refund", async () => {
+    const booking = paid();
+    fake.refundError = { code: "api_connection_error" };
+    const result = await run();
+
+    expect(result.ok).toBe(false);
+    expect(booking.status).toBe("CONFIRMED");
+    expect(booking.refundedAt).toBeNull();
+  });
+
+  it("records the cancellation when the payment was already refunded in Stripe", async () => {
+    const booking = paid();
+    fake.refundError = { code: "charge_already_refunded" };
+    const result = await run();
+
+    expect(result.ok).toBe(true);
+    expect(booking.status).toBe("CANCELLED");
+    expect(booking.refundedAt).toBeInstanceOf(Date);
+  });
+
+  it("a second click after success is refused and refunds nothing again", async () => {
+    paid();
+    await run();
+    fake.refunds.length = 0;
+    const again = await run();
+
+    expect(again.ok).toBe(false);
+    expect(fake.refunds).toHaveLength(0);
   });
 });

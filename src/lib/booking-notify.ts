@@ -3,6 +3,7 @@ import { formatMoney } from "@/lib/bookings";
 import { prisma } from "@/lib/db";
 import { escapeHtml, sendEmail } from "@/lib/email";
 import { SITE_NAME } from "@/lib/site";
+import { getStripe } from "@/lib/stripe";
 
 // Booking days are stored as UTC midnight, so show them in UTC or they'd shift a day.
 const dayFormat = new Intl.DateTimeFormat("en-US", {
@@ -95,5 +96,57 @@ export async function notifyBookingConfirmed(session: Stripe.Checkout.Session) {
     }
   } catch (error) {
     console.error("Could not send booking confirmation emails:", error);
+  }
+}
+
+/**
+ * Tells the owner their paid booking was cancelled and refunded. Like the confirmation it
+ * never throws: the refund already happened, and a failed email must not undo or hide
+ * that. The owner's address is only known to Stripe (typed at its payment page), so it is
+ * read back from the booking's Checkout Session.
+ */
+export async function notifyBookingCancelled(bookingId: string) {
+  try {
+    const booking = await prisma.booking.findUnique({
+      where: { id: bookingId },
+      select: {
+        startDate: true,
+        endDate: true,
+        amountCents: true,
+        stripeSessionId: true,
+        pet: { select: { name: true } },
+        user: { select: { name: true, email: true } },
+      },
+    });
+    if (!booking?.stripeSessionId) return;
+
+    const session = await getStripe().checkout.sessions.retrieve(
+      booking.stripeSessionId,
+    );
+    const ownerEmail = session.customer_details?.email;
+    if (!ownerEmail) return;
+
+    const dates = `${dayFormat.format(booking.startDate)} to ${dayFormat.format(booking.endDate)}`;
+    const total = formatMoney(booking.amountCents);
+    const daycare = booking.user.name || "Your pet's daycare";
+    const daycareEmail = booking.user.email.endsWith(".local")
+      ? undefined
+      : booking.user.email;
+
+    await sendEmail({
+      to: ownerEmail,
+      fromName: daycare,
+      replyTo: daycareEmail,
+      subject: `Booking cancelled for ${booking.pet.name}`,
+      html: `<p>Hi,</p>
+<p>${escapeHtml(daycare)} had to cancel ${escapeHtml(booking.pet.name)}'s stay (${escapeHtml(dates)}).</p>
+<p>You have been refunded ${total} in full. It can take 5 to 10 business days to appear on your statement. Reply to this email if you have questions.</p>`,
+      text: `${daycare} had to cancel ${booking.pet.name}'s stay (${dates}).\n\nYou have been refunded ${total} in full. It can take 5 to 10 business days to appear on your statement. Reply to this email if you have questions.`,
+    });
+  } catch (error) {
+    console.error(
+      `Booking ${bookingId}: the cancellation email failed:`,
+      error,
+    );
   }
 }

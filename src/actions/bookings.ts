@@ -13,7 +13,12 @@ import {
   MAX_OPEN_BOOKING_REQUESTS_PER_PET,
   OPEN_REQUEST_WINDOW_MS,
 } from "@/lib/constants";
-import { expireCheckoutSession, platformFee } from "@/lib/booking-payments";
+import {
+  expireCheckoutSession,
+  platformFee,
+  refundAndCancelBooking,
+} from "@/lib/booking-payments";
+import { notifyBookingCancelled } from "@/lib/booking-notify";
 import { getAppUrl, getStripe } from "@/lib/stripe";
 
 export type BookingLinkResult =
@@ -307,8 +312,8 @@ export type CancelBookingResult = { ok: true } | { ok: false; error: string };
 /**
  * Cancels one of the signed-in daycare's unpaid booking requests, and closes its payment
  * page so it can't be paid afterwards (if it somehow is, the webhook refunds it). Only a
- * request still waiting for payment can be cancelled here: a confirmed (paid) booking
- * needs a refund, which is not built yet.
+ * request still waiting for payment can be cancelled here; a paid booking is cancelled
+ * (and refunded) by cancelPaidBooking.
  */
 export async function cancelBookingRequest(
   bookingId: string,
@@ -340,6 +345,36 @@ export async function cancelBookingRequest(
     return { ok: true };
   } catch (error) {
     console.error("Failed to cancel a booking request:", error);
+    return { ok: false, error: "Could not cancel. Please try again." };
+  }
+}
+
+/**
+ * Cancels one of the signed-in daycare's paid bookings and refunds the owner in full. The
+ * refund is made before the booking is touched (see refundAndCancelBooking), and the owner
+ * is told by email afterwards.
+ */
+export async function cancelPaidBooking(
+  bookingId: string,
+): Promise<CancelBookingResult> {
+  const auth = await authorizeUser();
+  if (!auth.ok) return auth;
+
+  if (typeof bookingId !== "string" || bookingId.length === 0) {
+    return { ok: false, error: "That booking no longer exists." };
+  }
+
+  try {
+    const result = await refundAndCancelBooking({
+      bookingId,
+      userId: auth.userId,
+    });
+    if (!result.ok) return result;
+    await notifyBookingCancelled(bookingId);
+    revalidatePath("/app/bookings");
+    return { ok: true };
+  } catch (error) {
+    console.error("Failed to cancel a paid booking:", error);
     return { ok: false, error: "Could not cancel. Please try again." };
   }
 }

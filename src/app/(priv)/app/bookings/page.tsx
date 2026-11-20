@@ -1,7 +1,9 @@
+import { connection } from "next/server";
 import { redirect } from "next/navigation";
 import { Suspense } from "react";
 import CancelBookingButton from "@/components/cancel-booking-button";
 import ContentBlock from "@/components/content-block";
+import RefundBookingButton from "@/components/refund-booking-button";
 import H1 from "@/components/h1";
 import { getCurrentUser } from "@/lib/auth";
 import { formatMoney } from "@/lib/bookings";
@@ -50,6 +52,12 @@ async function BookingList() {
   if (!user) redirect(SIGN_IN); // The proxy already guards /app; this is a backstop.
 
   const bookings = await getBookings(user.id);
+  // Reads today's date (to hide the refund button on stays that already ended), which
+  // cacheComponents only allows once the page is known to be rendered per request.
+  await connection();
+  const today = new Date(
+    `${new Date().toISOString().slice(0, 10)}T00:00:00.000Z`,
+  );
 
   if (bookings.length === 0) {
     return (
@@ -66,7 +74,13 @@ async function BookingList() {
     <ContentBlock className="p-2 sm:p-4">
       <ul className="divide-y divide-black/8">
         {bookings.map((booking) => {
-          const status = STATUS[booking.status];
+          const refunded = booking.status === "CANCELLED" && booking.refundedAt;
+          const status = refunded
+            ? {
+                label: "Cancelled and refunded",
+                className: "bg-zinc-200 text-zinc-700",
+              }
+            : STATUS[booking.status];
           return (
             <li
               key={booking.id}
@@ -98,6 +112,13 @@ async function BookingList() {
                   <CancelBookingButton
                     bookingId={booking.id}
                     petName={booking.pet.name}
+                  />
+                )}
+                {booking.status === "CONFIRMED" && booking.endDate >= today && (
+                  <RefundBookingButton
+                    bookingId={booking.id}
+                    petName={booking.pet.name}
+                    amount={formatMoney(booking.amountCents)}
                   />
                 )}
               </div>

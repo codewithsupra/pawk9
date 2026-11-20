@@ -15,6 +15,7 @@ A pet-daycare dashboard. Daycares manage guests, check pets in and out, share ph
 - **Guests and stays.** Add, edit and search pets, with optimistic updates. Check pets in and out, with a visit history for each.
 - **Photos for owners.** Upload photos, then email one to the owner as a link that expires after 7 days.
 - **Online booking and payment.** Each pet gets a private booking link. Owners pick dates and pay by card, and the daycare is paid directly. PawK9 keeps an 8% platform fee.
+- **Cancel and refund.** A daycare can cancel a paid booking. The owner is refunded in full, including PawK9's fee, the dates free up, and the owner is emailed.
 - **Plans.** Subscription through Clerk Billing, or a one-time lifetime purchase through Stripe.
 
 ## Interesting engineering
@@ -60,4 +61,4 @@ More detail is in [DEPLOYMENT.md](DEPLOYMENT.md) (environment variables and the 
 
 ## Known gaps
 
-It is a test-mode deployment. Paid bookings can't yet be cancelled or refunded from the app, there is no error monitoring, and the Stripe connection status refreshes only when the daycare opens the Account page.
+It is a test-mode deployment. There is no error monitoring, and the Stripe connection status refreshes only when the daycare opens the Account page.

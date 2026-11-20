@@ -196,3 +196,87 @@ export async function expireCheckoutSession(sessionId: string | null) {
     // webhook refunds it.
   }
 }
+
+export type RefundBookingResult =
+  { ok: true; paymentIntentId: string } | { ok: false; error: string };
+
+/**
+ * The daycare cancels a booking that was already paid: the owner gets all of their money
+ * back (PawK9's fee too, taken out of the daycare's transfer) and the dates free up.
+ *
+ * The refund is made first, and the booking is only marked cancelled after Stripe agreed.
+ * If marking fails the daycare can simply try again: the idempotency key makes Stripe
+ * return the same refund instead of making a second one. If the refund fails nothing has
+ * changed. The booking keeps its payment id, so a replayed webhook for it is recognised as
+ * already handled rather than refunded again.
+ *
+ * Only a stay that has not ended can be cancelled here; settling an old stay is a money
+ * question for the Stripe dashboard.
+ */
+export async function refundAndCancelBooking(input: {
+  bookingId: string;
+  userId: string;
+  now?: Date;
+}): Promise<RefundBookingResult> {
+  const today = new Date(
+    `${(input.now ?? new Date()).toISOString().slice(0, 10)}T00:00:00.000Z`,
+  );
+
+  // Matches on the owner too, so someone else's booking looks like a missing one.
+  const booking = await prisma.booking.findFirst({
+    where: { id: input.bookingId, userId: input.userId },
+    select: {
+      id: true,
+      status: true,
+      endDate: true,
+      stripePaymentIntentId: true,
+    },
+  });
+  if (
+    !booking ||
+    booking.status !== "CONFIRMED" ||
+    !booking.stripePaymentIntentId
+  ) {
+    return { ok: false, error: "That booking can't be cancelled." };
+  }
+  if (booking.endDate < today) {
+    return {
+      ok: false,
+      error:
+        "This stay has already ended. Refund it from your Stripe dashboard instead.",
+    };
+  }
+
+  const intentId = booking.stripePaymentIntentId;
+  try {
+    await getStripe().refunds.create(
+      {
+        payment_intent: intentId,
+        reverse_transfer: true,
+        refund_application_fee: true,
+        metadata: { bookingId: booking.id, reason: "cancelled by the daycare" },
+      },
+      { idempotencyKey: `booking-cancel-${intentId}` },
+    );
+  } catch (error) {
+    // Already refunded some other way (for example in the Stripe dashboard): the money is
+    // back with the owner, so carry on and record it.
+    if ((error as { code?: string }).code !== "charge_already_refunded") {
+      console.error(`Booking ${booking.id}: refund failed:`, error);
+      return {
+        ok: false,
+        error: "Stripe could not refund this payment. Please try again.",
+      };
+    }
+  }
+
+  // Matches the status too, so two clicks at once end with one cancellation.
+  await prisma.booking.updateMany({
+    where: { id: booking.id, userId: input.userId, status: "CONFIRMED" },
+    data: { status: "CANCELLED", refundedAt: new Date() },
+  });
+  console.warn(
+    `Booking ${booking.id}: payment ${intentId} refunded (cancelled by the daycare).`,
+  );
+  return { ok: true, paymentIntentId: intentId };
+}

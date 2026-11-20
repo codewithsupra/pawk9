@@ -84,6 +84,7 @@ export async function getBookings(userId: string) {
       days: true,
       amountCents: true,
       status: true,
+      refundedAt: true,
       createdAt: true,
       pet: { select: { name: true, ownerName: true } },
     },
